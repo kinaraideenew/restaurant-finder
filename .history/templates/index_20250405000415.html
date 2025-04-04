@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ตำแหน่งปัจจุบัน</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        #map-container {
+            height: 100vh;
+            width: 100%;
+            position: relative;
+        }
+        .location-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="map-container">
+        {{ map | safe }}
+        <div class="location-info" id="location-info">
+            <h3>ตำแหน่งปัจจุบัน</h3>
+            <p id="coordinates">กำลังค้นหาตำแหน่ง...</p>
+            <p id="address"></p>
+        </div>
+    </div>
+
+    <script>
+        function updateLocation(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            document.getElementById('coordinates').innerHTML = 
+                `ละติจูด: ${lat.toFixed(6)}<br>ลองจิจูด: ${lon.toFixed(6)}`;
+            
+            // Update map center
+            map.setView([lat, lon], 15);
+            
+            // Add marker
+            L.marker([lat, lon]).addTo(map)
+                .bindPopup('คุณอยู่ที่นี่')
+                .openPopup();
+        }
+
+        function handleLocationError(error) {
+            document.getElementById('coordinates').innerHTML = 
+                `เกิดข้อผิดพลาด: ${error.message}`;
+        }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(updateLocation, handleLocationError, {
+                enableHighAccuracy: true,
+                timeout: 5000,
+                maximumAge: 0
+            });
+        } else {
+            document.getElementById('coordinates').innerHTML = 
+                "เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง";
+        }
+    </script>
+</body>
+</html> 

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ตำแหน่งปัจจุบัน</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        #map-container {
+            height: 100vh;
+            width: 100%;
+            position: relative;
+        }
+        .info-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 350px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .restaurant-list {
+            margin-top: 15px;
+            border-top: 1px solid #eee;
+            padding-top: 15px;
+        }
+        .restaurant-item {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #eee;
+        }
+        .restaurant-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .restaurant-rating {
+            color: #f39c12;
+            margin: 5px 0;
+        }
+        .restaurant-address {
+            font-size: 0.9em;
+            color: #666;
+        }
+        .star {
+            color: #f39c12;
+        }
+    </style>
+</head>
+<body>
+    <div id="map-container">
+        {{ map | safe }}
+        <div class="info-panel" id="info-panel">
+            <div>
+                <h3>ตำแหน่งปัจจุบัน</h3>
+                <p id="coordinates">กำลังค้นหาตำแหน่ง...</p>
+                <p id="address"></p>
+            </div>
+            <div class="restaurant-list" id="restaurant-list">
+                <h3>ร้านอาหารแนะนำใกล้เคียง</h3>
+                <div id="restaurants-container">กำลังค้นหาร้านอาหาร...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentMarker = null;
+        let restaurantMarkers = [];
+
+        function clearRestaurantMarkers() {
+            restaurantMarkers.forEach(marker => marker.remove());
+            restaurantMarkers = [];
+        }
+
+        function createStarRating(rating) {
+            const fullStars = Math.floor(rating);
+            const hasHalfStar = rating % 1 >= 0.5;
+            let stars = '';
+            
+            for (let i = 0; i < fullStars; i++) {
+                stars += '★';
+            }
+            if (hasHalfStar) {
+                stars += '⯨';
+            }
+            const emptyStars = 5 - Math.ceil(rating);
+            for (let i = 0; i < emptyStars; i++) {
+                stars += '☆';
+            }
+            return stars;
+        }
+
+        async function getNearbyRestaurants(lat, lon) {
+            try {
+                const response = await fetch(`/get_nearby_restaurants?lat=${lat}&lon=${lon}`);
+                const data = await response.json();
+                if (data.status === 'success') {
+                    // Clear existing markers
+                    clearRestaurantMarkers();
+                    
+                    // Update restaurant list
+                    const container = document.getElementById('restaurants-container');
+                    container.innerHTML = data.restaurants.map(restaurant => `
+                        <div class="restaurant-item">
+                            <div class="restaurant-name">${restaurant.name}</div>
+                            <div class="restaurant-rating">
+                                <span class="star">${createStarRating(restaurant.rating)}</span>
+                                ${restaurant.rating.toFixed(1)} (${restaurant.user_ratings_total} รีวิว)
+                            </div>
+                            <div class="restaurant-address">${restaurant.vicinity}</div>
+                        </div>
+                    `).join('');
+
+                    // Add markers for restaurants
+                    data.restaurants.forEach(restaurant => {
+                        const marker = L.marker([restaurant.lat, restaurant.lng])
+                            .addTo(map)
+                            .bindPopup(`
+                                <strong>${restaurant.name}</strong><br>
+                                คะแนน: ${restaurant.rating} ⭐<br>
+                                ${restaurant.vicinity}
+                            `);
+                        restaurantMarkers.push(marker);
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching restaurants:', error);
+                document.getElementById('restaurants-container').innerHTML = 
+                    'ไม่สามารถค้นหาร้านอาหารได้';
+            }
+        }
+
+        async function getAddressFromCoords(lat, lon) {
+            try {
+                const response = await fetch(`/get_location?lat=${lat}&lon=${lon}`);
+                const data = await response.json();
+                if (data.status === 'success') {
+                    document.getElementById('address').innerHTML = data.address;
+                }
+            } catch (error) {
+                console.error('Error fetching address:', error);
+            }
+        }
+
+        function updateLocation(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            
+            document.getElementById('coordinates').innerHTML = 
+                `ละติจูด: ${lat.toFixed(6)}<br>` +
+                `ลองจิจูด: ${lon.toFixed(6)}<br>` +
+                `ความแม่นยำ: ±${accuracy.toFixed(1)} เมตร`;
+            
+            // Update map center
+            map.setView([lat, lon], 16);
+            
+            // Update or add marker
+            if (currentMarker) {
+                currentMarker.setLatLng([lat, lon]);
+            } else {
+                currentMarker = L.marker([lat, lon]).addTo(map)
+                    .bindPopup('คุณอยู่ที่นี่')
+                    .openPopup();
+            }
+
+            // Add accuracy circle
+            L.circle([lat, lon], {
+                radius: accuracy,
+                color: 'blue',
+                fillColor: '#3388ff',
+                fillOpacity: 0.1
+            }).addTo(map);
+
+            // Get address and nearby restaurants
+            getAddressFromCoords(lat, lon);
+            getNearbyRestaurants(lat, lon);
+        }
+
+        function handleLocationError(error) {
+            let errorMessage = 'เกิดข้อผิดพลาด: ';
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    errorMessage += 'ผู้ใช้ปฏิเสธการเข้าถึงตำแหน่ง';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    errorMessage += 'ไม่สามารถระบุตำแหน่งได้';
+                    break;
+                case error.TIMEOUT:
+                    errorMessage += 'หมดเวลาในการค้นหาตำแหน่ง';
+                    break;
+                default:
+                    errorMessage += error.message;
+            }
+            document.getElementById('coordinates').innerHTML = errorMessage;
+        }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(updateLocation, handleLocationError, {
+                enableHighAccuracy: true,
+                timeout: 5000,
+                maximumAge: 0
+            });
+        } else {
+            document.getElementById('coordinates').innerHTML = 
+                "เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง";
+        }
+    </script>
+</body>
+</html> 

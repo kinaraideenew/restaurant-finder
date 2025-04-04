@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ตำแหน่งปัจจุบัน</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        #map-container {
+            height: 100vh;
+            width: 100%;
+            position: relative;
+        }
+        .location-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="map-container">
+        {{ map | safe }}
+        <div class="location-info" id="location-info">
+            <h3>ตำแหน่งปัจจุบัน</h3>
+            <p id="coordinates">กำลังค้นหาตำแหน่ง...</p>
+            <p id="address"></p>
+        </div>
+    </div>
+
+    <script>
+        let currentMarker = null;
+
+        async function getAddressFromCoords(lat, lon) {
+            try {
+                const response = await fetch(`/get_location?lat=${lat}&lon=${lon}`);
+                const data = await response.json();
+                if (data.status === 'success') {
+                    document.getElementById('address').innerHTML = data.address;
+                }
+            } catch (error) {
+                console.error('Error fetching address:', error);
+            }
+        }
+
+        function updateLocation(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            
+            document.getElementById('coordinates').innerHTML = 
+                `ละติจูด: ${lat.toFixed(6)}<br>` +
+                `ลองจิจูด: ${lon.toFixed(6)}<br>` +
+                `ความแม่นยำ: ±${accuracy.toFixed(1)} เมตร`;
+            
+            // Update map center
+            map.setView([lat, lon], 18);
+            
+            // Update or add marker
+            if (currentMarker) {
+                currentMarker.setLatLng([lat, lon]);
+            } else {
+                currentMarker = L.marker([lat, lon]).addTo(map)
+                    .bindPopup('คุณอยู่ที่นี่')
+                    .openPopup();
+            }
+
+            // Add accuracy circle
+            L.circle([lat, lon], {
+                radius: accuracy,
+                color: 'blue',
+                fillColor: '#3388ff',
+                fillOpacity: 0.1
+            }).addTo(map);
+
+            // Get address for the location
+            getAddressFromCoords(lat, lon);
+        }
+
+        function handleLocationError(error) {
+            let errorMessage = 'เกิดข้อผิดพลาด: ';
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    errorMessage += 'ผู้ใช้ปฏิเสธการเข้าถึงตำแหน่ง';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    errorMessage += 'ไม่สามารถระบุตำแหน่งได้';
+                    break;
+                case error.TIMEOUT:
+                    errorMessage += 'หมดเวลาในการค้นหาตำแหน่ง';
+                    break;
+                default:
+                    errorMessage += error.message;
+            }
+            document.getElementById('coordinates').innerHTML = errorMessage;
+        }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(updateLocation, handleLocationError, {
+                enableHighAccuracy: true,
+                timeout: 5000,
+                maximumAge: 0
+            });
+        } else {
+            document.getElementById('coordinates').innerHTML = 
+                "เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง";
+        }
+    </script>
+</body>
+</html> 
