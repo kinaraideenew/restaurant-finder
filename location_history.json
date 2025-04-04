@@ -1,0 +1,121 @@
+[
+  {
+    "lat": 13.817603803754992,
+    "lon": 100.62624276893834,
+    "accuracy": 91,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:36:25.470533+07:00"
+  },
+  {
+    "lat": 13.817603314459774,
+    "lon": 100.62628257256182,
+    "accuracy": 91,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:36:51.171965+07:00"
+  },
+  {
+    "lat": 13.817612568575578,
+    "lon": 100.62628518319222,
+    "accuracy": 91,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:38:08.301906+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  },
+  {
+    "lat": 13.817628725775634,
+    "lon": 100.62626826941577,
+    "accuracy": 114,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:41:30.465986+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  },
+  {
+    "lat": 13.817639310661717,
+    "lon": 100.6262771416638,
+    "accuracy": 98,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:42:19.350611+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  },
+  {
+    "lat": 13.817629362704398,
+    "lon": 100.62625849690265,
+    "accuracy": 100,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:42:33.241962+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  },
+  {
+    "lat": 13.817599561397305,
+    "lon": 100.62619939774282,
+    "accuracy": 108,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:44:21.291582+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  },
+  {
+    "lat": 13.817629751412206,
+    "lon": 100.6262775531602,
+    "accuracy": 103,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:46:55.755094+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  },
+  {
+    "lat": 13.817616029774557,
+    "lon": 100.62622018575578,
+    "accuracy": 97,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:47:09.436357+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  },
+  {
+    "lat": 13.817611422606573,
+    "lon": 100.62628586049156,
+    "accuracy": 104,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T00:58:25.259204+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  },
+  {
+    "lat": 13.817622609187175,
+    "lon": 100.62627585970975,
+    "accuracy": 100,
+    "altitude": null,
+    "altitudeAccuracy": null,
+    "heading": null,
+    "speed": null,
+    "timestamp": "2025-04-05T01:03:08.391366+07:00",
+    "address": "แขวงคลองจั่น, เขตบางกะปิ, กรุงเทพมหานคร, 10230, ประเทศไทย"
+  }
+]
