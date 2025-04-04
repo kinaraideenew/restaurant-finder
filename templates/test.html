@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ทดสอบการส่งตำแหน่ง</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            margin: 20px;
+            padding: 20px;
+        }
+        .button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>ทดสอบการส่งตำแหน่งและอีเมล</h1>
+    <button class="button" onclick="sendLocation()">ส่งตำแหน่งปัจจุบัน</button>
+    <div id="result"></div>
+
+    <script>
+        function sendLocation() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const data = {
+                        lat: position.coords.latitude,
+                        lon: position.coords.longitude,
+                        accuracy: position.coords.accuracy
+                    };
+
+                    fetch('/track', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('result').innerHTML = `
+                            <h3>ผลการส่งข้อมูล:</h3>
+                            <p>สถานะ: ${data.status}</p>
+                            <p>ข้อความ: ${data.message}</p>
+                            <p>User ID: ${data.user_id}</p>
+                            <p>Device ID: ${data.device_id}</p>
+                        `;
+                    })
+                    .catch(error => {
+                        document.getElementById('result').innerHTML = `
+                            <h3>เกิดข้อผิดพลาด:</h3>
+                            <p>${error.message}</p>
+                        `;
+                    });
+                });
+            } else {
+                document.getElementById('result').innerHTML = "ไม่สามารถใช้งาน Geolocation ได้";
+            }
+        }
+    </script>
+</body>
+</html> 
