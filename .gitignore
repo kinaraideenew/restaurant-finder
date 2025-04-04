@@ -39,5 +39,12 @@ ENV/
 Thumbs.db
 
 # Application Specific
+data/*.json
+data/user_data/
+data/backups/
+*.log
+*.bak
+
+# Location History
 data/location_history.json
 *.log 

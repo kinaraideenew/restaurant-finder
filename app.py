@@ -10,6 +10,7 @@ import logging
 import json
 from datetime import datetime
 import pytz
+import math
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -18,10 +19,14 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Create data directory if not exists
+# Create required directories
 DATA_DIR = 'data'
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
+USER_DATA_DIR = os.path.join(DATA_DIR, 'user_data')
+BACKUP_DIR = os.path.join(DATA_DIR, 'backups')
+
+for directory in [DATA_DIR, USER_DATA_DIR, BACKUP_DIR]:
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
 LOCATION_HISTORY_FILE = os.path.join(DATA_DIR, 'location_history.json')
 
@@ -35,47 +40,118 @@ if not api_key:
 
 gmaps = googlemaps.Client(key=api_key)
 
-def save_location_history(location_data):
+def get_user_location_file(user_id):
+    """Get location history file path for specific user"""
+    return os.path.join(USER_DATA_DIR, f'location_history_{user_id}.json')
+
+def get_backup_file(user_id):
+    """Get backup file path for specific user"""
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return os.path.join(BACKUP_DIR, f'location_history_{user_id}_{timestamp}.json')
+
+def save_location_history(location_data, user_id='default'):
     try:
+        # Validate input data
+        required_fields = ['lat', 'lon']
+        for field in required_fields:
+            if field not in location_data:
+                logger.error(f"Missing required field: {field}")
+                return False
+            try:
+                location_data[field] = float(location_data[field])
+            except ValueError:
+                logger.error(f"Invalid {field} value: {location_data[field]}")
+                return False
+
+        # Get user-specific location file
+        location_file = get_user_location_file(user_id)
+        
         # Load existing history
         history = []
-        if os.path.exists(LOCATION_HISTORY_FILE):
+        if os.path.exists(location_file):
             try:
-                with open(LOCATION_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                with open(location_file, 'r', encoding='utf-8') as f:
                     history = json.load(f)
-            except json.JSONDecodeError:
-                logger.warning("Invalid JSON in history file, starting fresh")
+                    if not isinstance(history, list):
+                        logger.error("History file contains invalid data format")
+                        history = []
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                logger.warning(f"Could not read history file: {str(e)}")
                 history = []
         
-        # Add timestamp and address
+        # Add timestamp and format in Thai timezone
         tz = pytz.timezone('Asia/Bangkok')
-        location_data['timestamp'] = datetime.now(tz).isoformat()
+        current_time = datetime.now(tz)
+        location_data['timestamp'] = current_time.isoformat()
+        location_data['formatted_time'] = current_time.strftime("%d/%m/%Y %H:%M:%S")
         
         try:
-            geolocator = Nominatim(user_agent="my_web_app")
-            location = geolocator.reverse(f"{location_data['lat']}, {location_data['lon']}")
+            # Get address with timeout
+            geolocator = Nominatim(user_agent="restaurant_finder_app")
+            location = geolocator.reverse(
+                f"{location_data['lat']}, {location_data['lon']}", 
+                timeout=5,
+                language='th'
+            )
             location_data['address'] = location.address if location else None
         except Exception as e:
             logger.warning(f"Could not get address: {str(e)}")
             location_data['address'] = None
+        
+        # Check for duplicate locations
+        if history:
+            last_location = history[-1]
+            time_diff = (current_time - datetime.fromisoformat(last_location['timestamp'])).total_seconds()
+            
+            if time_diff < 300:  # 5 minutes
+                distance = calculate_distance(
+                    last_location['lat'], last_location['lon'],
+                    location_data['lat'], location_data['lon']
+                )
+                
+                if distance < 10:  # 10 meters
+                    logger.debug("Skipping duplicate location")
+                    return True
         
         # Append new location
         history.append(location_data)
         
         # Keep only last 100 locations
         if len(history) > 100:
+            # Create backup before truncating
+            backup_file = get_backup_file(user_id)
+            with open(backup_file, 'w', encoding='utf-8') as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+            
             history = history[-100:]
         
-        # Save back to file
-        with open(LOCATION_HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
+        # Save to file
+        try:
+            with open(location_file, 'w', encoding='utf-8') as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+                
+            logger.debug(f"Location saved successfully for user {user_id}")
+            return True
             
-        logger.debug(f"Location saved: {location_data}")
-        return True
-        
+        except Exception as e:
+            logger.error(f"Error saving location data: {str(e)}")
+            return False
+            
     except Exception as e:
-        logger.error(f"Error saving location history: {str(e)}")
+        logger.error(f"Error in save_location_history: {str(e)}")
         return False
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Calculate distance between two points using Haversine formula"""
+    R = 6371000  # Earth radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    
+    a = math.sin(delta_phi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return R * c
 
 @app.route('/')
 def index():
@@ -97,13 +173,15 @@ def index():
 def save_location():
     try:
         data = request.get_json()
+        user_id = data.get('user_id', 'default')
+        
         if not data or 'lat' not in data or 'lon' not in data:
             return jsonify({
                 'status': 'error',
                 'message': 'Missing coordinates'
             })
         
-        success = save_location_history(data)
+        success = save_location_history(data, user_id)
         
         return jsonify({
             'status': 'success' if success else 'error',
@@ -120,16 +198,19 @@ def save_location():
 @app.route('/get_location_history')
 def get_location_history():
     try:
-        if os.path.exists(LOCATION_HISTORY_FILE):
+        user_id = request.args.get('user_id', 'default')
+        location_file = get_user_location_file(user_id)
+        
+        if os.path.exists(location_file):
             try:
-                with open(LOCATION_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                with open(location_file, 'r', encoding='utf-8') as f:
                     history = json.load(f)
                 return jsonify({
                     'status': 'success',
                     'history': history
                 })
             except json.JSONDecodeError:
-                logger.error("Invalid JSON in history file")
+                logger.error(f"Invalid JSON in history file for user {user_id}")
                 return jsonify({
                     'status': 'error',
                     'message': 'Invalid history data'
