@@ -553,83 +553,92 @@
             }
         }
 
-        function showPosition(position) {
+        function updateLocation(position) {
             const lat = position.coords.latitude;
-            const long = position.coords.longitude;
+            const lon = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            const altitude = position.coords.altitude;
+            const altitudeAccuracy = position.coords.altitudeAccuracy;
+            const heading = position.coords.heading;
+            const speed = position.coords.speed;
             
-            // Update map
+            const [accuracyLevel, accuracyText] = getAccuracyLevel(accuracy);
+            
+            // Save location data
+            const locationData = {
+                lat: lat,
+                lon: lon,
+                accuracy: accuracy,
+                altitude: altitude,
+                altitudeAccuracy: altitudeAccuracy,
+                heading: heading,
+                speed: speed
+            };
+            saveLocation(locationData);
+            
+            document.getElementById('address').innerHTML = `
+                <div class="coordinates">
+                    ละติจูด: ${lat.toFixed(6)}<br>
+                    ลองจิจูด: ${lon.toFixed(6)}
+                    ${altitude ? `<br>ความสูง: ${altitude.toFixed(1)} เมตร` : ''}
+                    ${speed ? `<br>ความเร็ว: ${(speed * 3.6).toFixed(1)} กม./ชม.` : ''}
+                    ${heading ? `<br>ทิศทาง: ${heading.toFixed(1)}°` : ''}
+                </div>
+                <div class="accuracy ${accuracyLevel}">
+                    ${accuracyText} (±${accuracy.toFixed(1)} ม.)
+                    ${altitudeAccuracy ? `<br>ความแม่นยำความสูง: ±${altitudeAccuracy.toFixed(1)} ม.` : ''}
+                </div>
+            `;
+            
+            // ซูมแผนที่ตามความแม่นยำ
+            const zoomLevel = accuracy <= 10 ? 19 : 
+                            accuracy <= 50 ? 18 : 
+                            accuracy <= 100 ? 17 : 16;
+            
+            map.setView([lat, lon], zoomLevel);
+            
             if (currentMarker) {
-                currentMarker.remove();
+                currentMarker.setLatLng([lat, lon]);
+            } else {
+                currentMarker = L.marker([lat, lon]).addTo(map)
+                    .bindPopup('คุณอยู่ที่นี่')
+                    .openPopup();
             }
-            currentMarker = L.marker([lat, long]).addTo(map);
-            map.setView([lat, long], 15);
 
-            // Get and display nearby restaurants
-            fetch(`/get_restaurants?lat=${lat}&long=${long}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        document.getElementById('address').innerHTML = 
-                            `<div class="error-message">ขออภัย: ${data.error}</div>`;
-                        return;
-                    }
+            // แสดงวงกลมความแม่นยำ
+            L.circle([lat, lon], {
+                radius: accuracy,
+                color: accuracyLevel === 'high' ? '#4caf50' : 
+                       accuracyLevel === 'medium' ? '#ff9800' : '#f44336',
+                fillColor: accuracyLevel === 'high' ? '#4caf50' : 
+                          accuracyLevel === 'medium' ? '#ff9800' : '#f44336',
+                fillOpacity: 0.1
+            }).addTo(map);
 
-                    // Save location data
-                    const locationData = {
-                        lat: lat,
-                        long: long,
-                        timestamp: new Date().toISOString()
-                    };
-                    saveLocation(locationData);
-                    
-                    // Update address display
-                    document.getElementById('address').innerHTML = 
-                        `<div class="current-address">กำลังค้นหาที่อยู่...</div>`;
-
-                    // Display restaurants
-                    displayRestaurants(data.restaurants);
-                    
-                    // Get and display address
-                    fetch(`/get_address?lat=${lat}&long=${long}`)
-                        .then(response => response.json())
-                        .then(addressData => {
-                            if (addressData.address) {
-                                document.getElementById('address').innerHTML = 
-                                    `<div class="current-address">${addressData.address}</div>`;
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error getting address:', error);
-                        });
-                })
-                .catch(error => {
-                    document.getElementById('address').innerHTML = 
-                        `<div class="error-message">เกิดข้อผิดพลาดในการค้นหาร้านอาหาร</div>`;
-                    console.error('Error:', error);
-                });
+            getAddressFromCoords(lat, lon);
+            getNearbyRestaurants(lat, lon);
         }
 
-        function showError(error) {
-            let errorMessage = '<div class="error-message">';
+        function handleLocationError(error) {
+            let errorMessage = 'เกิดข้อผิดพลาด: ';
             switch(error.code) {
                 case error.PERMISSION_DENIED:
-                    errorMessage += "กรุณาอนุญาตการเข้าถึงตำแหน่งเพื่อค้นหาร้านอาหารใกล้เคียง";
+                    errorMessage += 'ผู้ใช้ปฏิเสธการเข้าถึงตำแหน่ง';
                     break;
                 case error.POSITION_UNAVAILABLE:
-                    errorMessage += "ไม่สามารถระบุตำแหน่งของคุณได้";
+                    errorMessage += 'ไม่สามารถระบุตำแหน่งได้';
                     break;
                 case error.TIMEOUT:
-                    errorMessage += "หมดเวลาในการค้นหาตำแหน่ง";
+                    errorMessage += 'หมดเวลาในการค้นหาตำแหน่ง';
                     break;
                 default:
                     errorMessage += error.message;
             }
-            errorMessage += '</div>';
             document.getElementById('address').innerHTML = errorMessage;
         }
 
         if (navigator.geolocation) {
-            navigator.geolocation.watchPosition(showPosition, showError, {
+            navigator.geolocation.watchPosition(updateLocation, handleLocationError, {
                 enableHighAccuracy: true,  // เปิดใช้งานความแม่นยำสูงสุด
                 timeout: 10000,            // เพิ่มเวลารอเป็น 10 วินาที
                 maximumAge: 0              // ไม่ใช้ตำแหน่งที่แคชไว้
